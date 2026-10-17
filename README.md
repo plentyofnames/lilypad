@@ -26,6 +26,8 @@ and open <http://localhost:8000/>. After pulling a newer version, hard-reload (C
 
 - **Chrome, Edge** or another browser with Web MIDI and SysEx. Safari has no Web MIDI. The browser asks for MIDI/SysEx permission only when you pick the MIDI target and press **Connect**.
 - For a real unit: an EC4 running faderfrog, on USB. Connect sends IDENTIFY first and stops unless the unit answers with protocol 1.
+- **Reconnecting:** after a successful connection to a real unit, Lilypad reconnects to it on the next load. It does this only if the browser already allows MIDI, so a page load never prompts. If the unit isn't plugged in yet, Lilypad waits and connects when it appears; it also reconnects after the unit is unplugged and plugged back in. Pressing **Disconnect** stops all of this until the next manual Connect.
+- **One tab at a time:** the unit answers every program that has its port open. So a Lilypad tab doesn't reconnect by itself while another Lilypad tab holds the unit, and pressing **Connect** takes the unit over from the other tab.
 - Nothing is needed for the demo or for working on files offline.
 
 ## Targets

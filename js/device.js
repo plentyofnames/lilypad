@@ -123,8 +123,9 @@ export class Device extends EventTarget {
     return p;
   }
 
-  async identify() {
-    const r = await this.request(CMD.IDENTIFY, host.identify(), (r) => r.type === 'identify', { timeout: 800, retries: 1 });
+  // busyMs: how long to keep trying when there's no reply (a dump, or no faderfrog at all).
+  async identify({ busyMs = BUSY_MS } = {}) {
+    const r = await this.request(CMD.IDENTIFY, host.identify(), (r) => r.type === 'identify', { timeout: 800, retries: 1, busyMs });
     this.info = r;
     return r;
   }

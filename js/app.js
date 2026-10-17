@@ -6,7 +6,7 @@ import { Device } from './device.js';
 import { TouchFilter } from './touch.js';
 import { MockDevice, imageFromSetupsOnly } from './mock.js';
 import { demoImage } from './demo.js';
-import { midiAccess, portPairs, midiTransport } from './midi.js';
+import { midiAccess, midiPermission, portPairs, midiTransport } from './midi.js';
 import { parseContainer, containerFromImage, defaultHeader, TYPE_ALL_SETUPS, STOCK_PADDING } from './syx.js';
 import { hexdump, PAGE } from './proto.js';
 import { h, $, replace, download, modal } from './dom.js';
@@ -30,11 +30,21 @@ const S = {
   message: null,
   log: [],
   flash: null,
-  prefs: { follow: true, moveDevice: false, autoWrite: false, mockSpeed: 'real', showLog: false, showMock: true },
+  prefs: {
+    follow: true, moveDevice: false, autoWrite: false, mockSpeed: 'real', showLog: false, showMock: true,
+    autoConnect: false, // reconnect to lastPort on load: set by connecting to a real unit, cleared by Disconnect
+    lastPort: '',
+    seenIntro: false, // the full About text shows on the start screen until Lilypad has been used once
+  },
+  waitingFor: null, // port name to reconnect to when it is plugged in
 };
 
 try {
-  Object.assign(S.prefs, JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'));
+  const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null');
+  if (saved) {
+    Object.assign(S.prefs, saved);
+    if (!('seenIntro' in saved)) S.prefs.seenIntro = true; // saved prefs from before: used already
+  }
 } catch {}
 function savePrefs() {
   try {
@@ -55,6 +65,7 @@ function say(text, kind = 'info') {
 }
 function showError(e) {
   if (e instanceof Cancelled || e.name === 'AbortError') return say('Cancelled.');
+  if (e.message === 'device closed') return; // disconnected on purpose; the reason is already shown
   console.error(e);
   say(e.message || String(e), 'error');
 }
@@ -277,7 +288,7 @@ async function refreshPorts() {
     const prev = sel.value;
     replace(sel, pairs.length ? pairs.map((p) => h('option', { value: p.name }, p.name)) : h('option', { value: '' }, 'no MIDI ports'));
     if (pairs.some((p) => p.name === prev)) sel.value = prev;
-    acc.onstatechange = () => refreshPorts();
+    acc.onstatechange = () => refreshPorts().then(portsChanged).catch(() => {});
     return pairs;
   } catch (e) {
     replace(sel, h('option', { value: '' }, 'WebMIDI unavailable'));
@@ -285,14 +296,21 @@ async function refreshPorts() {
   }
 }
 
-async function connect() {
-  if (S.conn) return disconnect();
+// auto: a reconnect Lilypad starts by itself (on load or replug). It gives up sooner when
+// there's no reply and never takes the unit away from another Lilypad tab.
+async function connect({ auto = false } = {}) {
+  if (S.conn) return auto ? undefined : disconnect();
   const target = $('#target').value;
+  S.waitingFor = null;
   let transport;
   try {
     if (target === 'mock') {
       transport = (await getMock()).transport();
     } else {
+      if (auto && (await otherTabHasUnit())) {
+        return say('Another Lilypad tab is connected to the EC4, so this one stays offline. Press Connect to take it over.');
+      }
+      if (!auto) await takeOverUnit();
       const pairs = await refreshPorts();
       const pair = pairs.find((p) => p.name === $('#midiport').value) || pairs[0];
       if (!pair) throw new Error('No MIDI port pair found. Is the EC4 plugged in?');
@@ -324,7 +342,7 @@ async function connect() {
   }
 
   const dev = new Device(transport, { log: logLine });
-  S.conn = { dev, kind: target, name: transport.name, info: null };
+  S.conn = { dev, kind: target, name: transport.name, info: null, auto };
   dev.addEventListener('state', onDeviceState);
   dev.addEventListener('touch', onDeviceTouch);
   dev.addEventListener('deviceerror', (e) => say(`Device reported error ${e.detail.code} for command 0x${e.detail.cmd.toString(16)}`, 'error'));
@@ -336,23 +354,27 @@ async function connect() {
     }
     const s = Math.round(e.detail.elapsedMs / 1000);
     const why = S.conn?.info ? 'the device may be busy with a dump' : 'the device may be busy with a dump, or faderfrog is not running on it';
-    say(`No reply for ${s} s (${why}); retrying for up to 75 s. Cancel or Disconnect to stop.`, 'error');
+    say(`No reply for ${s} s (${why}); retrying for up to ${S.conn?.auto && !S.conn.info ? 'a few seconds' : '75 s'}. Cancel or Disconnect to stop.`, 'error');
     S.message.waiting = true;
   });
   say(`Connecting to ${transport.name}…`);
   renderAll();
   try {
-    const info = await dev.identify();
+    const info = await dev.identify(auto ? { busyMs: 4000 } : {});
     if (info.proto !== 1) throw new Error(`${transport.name} speaks protocol ${info.proto}; this editor speaks 1.`);
     if (info.maxChunk < 64 || info.eepromKb < 64) throw new Error(`Unexpected device limits (EEPROM ${info.eepromKb} KB, chunk ${info.maxChunk}).`);
     S.conn.info = info;
     S.devState = await dev.getState();
     await dev.touchEvents(true);
     await job('Reading names and globals', (j) => readPages(j, S.store.missingPages([M.GLOBALS_PAGE, M.SETUP_NAMES_PAGE])));
-    say(`Connected to ${transport.name}: firmware ${info.fwMajor}.${info.fwMinor}, protocol ${info.proto}.`, 'ok');
+    say(`${auto ? 'Reconnected' : 'Connected'} to ${transport.name}: firmware ${info.fwMajor}.${info.fwMinor}, protocol ${info.proto}.`, 'ok');
+    if (target === 'midi') Object.assign(S.prefs, { autoConnect: true, lastPort: transport.name });
+    S.prefs.seenIntro = true;
+    savePrefs();
     go(S.devState.setup, S.devState.group, { fromDevice: true });
   } catch (e) {
-    const msg = e.name === 'TimeoutError' || /no reply/.test(e.message) ? `No reply from ${transport.name}. Is the faderfrog firmware running on it?` : e.message;
+    const msg = e.name === 'TimeoutError' || /no reply/.test(e.message)
+      ? `No reply from ${transport.name}. Is the faderfrog firmware running on it?${auto ? ' Press Connect to try again.' : ''}` : e.message;
     disconnect(true);
     say(msg, 'error');
   }
@@ -380,8 +402,81 @@ async function disconnect(force = false) {
   conn.dev.close();
   S.conn = null;
   S.devState = null;
+  if (!force) {
+    S.waitingFor = null;
+    if (conn.kind === 'midi' && S.prefs.autoConnect) {
+      S.prefs.autoConnect = false; // the user disconnected: don't reconnect on the next load
+      savePrefs();
+    }
+  }
   renderAll();
   if (!force) say('Disconnected.');
+}
+
+// ---- reconnecting, and one Lilypad tab per unit
+//
+// The unit answers every program that has its port open, so two connected tabs would see each
+// other's replies (the protocol allows one host at a time). Tabs agree over a BroadcastChannel:
+// a reconnect waits for no other tab to hold the unit, Connect takes it over.
+
+const TAB = Math.random().toString(36).slice(2);
+const channel = 'BroadcastChannel' in window ? new BroadcastChannel('lilypad') : null;
+const replies = [];
+if (channel) {
+  channel.onmessage = (e) => {
+    const m = e.data || {};
+    if (m.from === TAB) return;
+    const holding = S.conn?.kind === 'midi';
+    if (m.type === 'query' && holding) channel.postMessage({ type: 'holding', from: TAB, to: m.from });
+    if (m.type === 'take' && holding) {
+      S.waitingFor = null;
+      disconnect(true); // no TOUCH_EVENTS off: the other tab is about to switch them on
+      say('Another Lilypad tab took over the EC4. Press Connect to take it back.', 'error');
+      channel.postMessage({ type: 'released', from: TAB, to: m.from });
+    }
+    if (m.to === TAB) replies.push(m);
+  };
+}
+
+async function askTabs(type, ms = 250) {
+  if (!channel) return [];
+  replies.length = 0;
+  channel.postMessage({ type, from: TAB });
+  await sleep(ms);
+  return replies.splice(0);
+}
+const otherTabHasUnit = async () => (await askTabs('query')).some((m) => m.type === 'holding');
+const takeOverUnit = () => askTabs('take');
+
+// On load: reconnect to the unit Lilypad was last connected to, if Chrome already allows MIDI.
+async function reconnectOnLoad() {
+  if (!S.prefs.autoConnect || !S.prefs.lastPort) return;
+  $('#target').value = 'midi';
+  renderAll();
+  if ((await midiPermission()) !== 'granted') return say(`Press Connect to reconnect to ${S.prefs.lastPort}.`);
+  const pairs = await refreshPorts().catch(() => []);
+  if (!pairs.some((p) => p.name === S.prefs.lastPort)) {
+    S.waitingFor = S.prefs.lastPort;
+    renderAll();
+    return say(`Waiting for ${S.prefs.lastPort}: Lilypad reconnects when it is plugged in.`);
+  }
+  $('#midiport').value = S.prefs.lastPort;
+  connect({ auto: true });
+}
+
+// A MIDI port came or went: notice an unplugged unit, reconnect a returning one.
+function portsChanged(pairs) {
+  const c = S.conn;
+  if (c?.kind === 'midi' && c.dev.transport.output?.state === 'disconnected') {
+    S.waitingFor = c.name;
+    disconnect(true);
+    say(`${c.name} was unplugged. Lilypad reconnects when it is back.`, 'error');
+  }
+  if (S.waitingFor && !S.conn && S.prefs.autoConnect && pairs.some((p) => p.name === S.waitingFor)) {
+    $('#target').value = 'midi';
+    $('#midiport').value = S.waitingFor;
+    connect({ auto: true });
+  }
 }
 
 function onDeviceState(e) {
@@ -572,6 +667,10 @@ async function openFile(file) {
   st.file.clear();
   st.fromFile(c.pages);
   st.fileInfo = { name: file.name, header: { ...c.header }, padding: c.padding, full, kind };
+  if (!S.prefs.seenIntro) {
+    S.prefs.seenIntro = true;
+    savePrefs();
+  }
   st.changed();
   say(`Opened ${file.name}: ${kind}, ${c.pages.length} pages.`, 'ok');
   go(S.sel.setup, S.sel.group);
@@ -973,12 +1072,17 @@ function aboutText() {
 }
 
 function welcome() {
+  const demo = h('button', { class: S.prefs.lastPort ? '' : 'primary', onclick: () => (($('#target').value = 'mock'), renderToolbar(), connect()) }, 'Try the demo EC4');
+  const open = h('button', { onclick: () => $('#fileinput').click() }, 'Open a .syx file…');
+  if (!S.prefs.seenIntro) return h('div', { class: 'welcome' }, h('h2', {}, 'Lilypad'), aboutText(), h('div', { class: 'welcome-actions' }, demo, open));
+  // Once Lilypad has been used, the start screen is just the way back in; About keeps the rest.
+  const port = S.prefs.lastPort;
+  const unit = port ? h('button', { class: 'primary', onclick: () => (($('#target').value = 'midi'), renderToolbar(), connect()) }, `Connect to ${port}`) : null;
   return h('div', { class: 'welcome' },
     h('h2', {}, 'Lilypad'),
-    aboutText(),
-    h('div', { class: 'welcome-actions' },
-      h('button', { class: 'primary', onclick: () => (($('#target').value = 'mock'), renderToolbar(), connect()) }, 'Try the demo EC4'),
-      h('button', { onclick: () => $('#fileinput').click() }, 'Open a .syx file…')));
+    S.waitingFor ? h('p', { class: 'hint' }, `Waiting for ${S.waitingFor} to be plugged in…`) : null,
+    h('div', { class: 'welcome-actions' }, unit, demo, open),
+    h('p', { class: 'hint' }, h('a', { href: '#', onclick: (e) => (e.preventDefault(), showAbout()) }, 'About Lilypad')));
 }
 
 function showAbout() {
@@ -1228,3 +1332,4 @@ function init() {
 window.lilypad = { S, M, writeChanges, connect, disconnect, go, openFile, saveSyx, edit };
 
 init();
+reconnectOnLoad().catch(showError);
