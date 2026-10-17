@@ -10,6 +10,8 @@ import { Store, diffChunks } from '../js/store.js';
 import { Device } from '../js/device.js';
 import { MockDevice } from '../js/mock.js';
 import { TouchFilter } from '../js/touch.js';
+import * as B from '../js/bulk.js';
+import { History } from '../js/history.js';
 import { demoImage } from '../js/demo.js';
 
 const tests = [];
@@ -360,6 +362,79 @@ export async function runTests(load, report = console.log) {
     }
     mock.faults.dropReplies = 0;
     eqBytes(await dev.read(0, 64), imageOf(full).subarray(0, 64), 'works again');
+  });
+
+  test('copy/paste of controls, groups and setups', () => {
+    const img = demoImage();
+    M.setEncoder(img, 0, 0, 2, 'type', M.T.NRPN);
+    M.setEncoder(img, 0, 0, 2, 'numberHigh', 9);
+    M.setEncoder(img, 0, 0, 2, 'name', 'Cut');
+    M.setEncoder(img, 0, 0, 2, 'link', 1);
+    M.setPush(img, 0, 0, 2, 'type', M.PT.GRP);
+    const clip = B.decodeClip(B.encodeClip(B.copyControls(img, 0, 0, [2])));
+    assert(clip && clip.kind === 'controls' && clip.items.length === 1, 'clipboard text round trip');
+    const wrote = B.pasteControls(img, 3, 4, [5, 15], clip);
+    assert(JSON.stringify(wrote) === '[5,15]');
+    for (const i of [5, 15]) {
+      const e = M.readEncoder(img, 3, 4, i);
+      assert(e.type === M.T.NRPN && e.numberHigh === 9 && e.name === 'Cut ' && M.readPush(img, 3, 4, i).type === M.PT.GRP);
+    }
+    assert(M.readEncoder(img, 3, 4, 5).link === 1 && M.readEncoder(img, 3, 4, 15).link === 0, 'no link on control 16');
+    // several controls go into consecutive slots from the first target
+    const many = B.copyControls(img, 0, 0, [0, 1, 2]);
+    assert(JSON.stringify(B.pasteControls(img, 1, 1, [14], many)) === '[14,15]', 'clipped at 16');
+    // group and setup
+    M.writeName(img, M.groupNameAddr(0, 0), 'Src');
+    B.pasteGroup(img, 7, 9, B.decodeClip(B.encodeClip(B.copyGroup(img, 0, 0))));
+    eqBytes(Uint8Array.from(B.groupAddrs(7, 9), (a) => img[a]), Uint8Array.from(B.groupAddrs(0, 0), (a) => img[a]), 'group bytes');
+    assert(M.groupName(img, 7, 9) === 'Src ');
+    M.writeName(img, M.setupNameAddr(0), 'Live');
+    const before = img.slice();
+    B.pasteSetup(img, 12, B.copySetup(img, 0));
+    eqBytes(Uint8Array.from(B.setupAddrs(12), (a) => img[a]), Uint8Array.from(B.setupAddrs(0), (a) => before[a]), 'setup bytes');
+    for (let a = 0; a < img.length; a++) if (img[a] !== before[a]) assert(B.setupAddrs(12).includes(a), 'paste touched only setup 13, not 0x' + a.toString(16));
+    assert(B.decodeClip('{"lilypad":1,"kind":"group","items":["00"]}') === null && B.decodeClip('hello') === null, 'rejects bad clipboards');
+  });
+
+  test('fill ascending and one field for several controls', () => {
+    const img = demoImage();
+    M.setEncoder(img, 2, 0, 0, 'number', 120);
+    assert(B.fill(img, 2, 0, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 'enc', 'number') === 10);
+    assert(JSON.stringify([0, 1, 7, 8, 9].map((i) => M.readEncoder(img, 2, 0, i).number)) === '[120,121,127,0,1]', 'numbers wrap at 128');
+    M.setEncoder(img, 2, 0, 4, 'type', M.T.PRGC); // number doesn't apply: skipped, not counted
+    M.setEncoder(img, 2, 0, 3, 'number', 50);
+    B.fill(img, 2, 0, [3, 4, 5], 'enc', 'number');
+    assert(M.readEncoder(img, 2, 0, 5).number === 51, 'skips the program change');
+    M.setPush(img, 2, 0, 0, 'channel', 14);
+    B.fill(img, 2, 0, [0, 1, 2, 3], 'push', 'channel');
+    assert(JSON.stringify([0, 1, 2, 3].map((i) => M.readPush(img, 2, 0, i).channel)) === '[14,15,0,1]', 'channels wrap at 16');
+    M.setEncoder(img, 2, 0, 9, 'type', M.T.CCAH);
+    const n = B.applyField(img, 2, 0, [4, 8, 9], 'enc', 'number', 100);
+    assert(n === 2 && M.readEncoder(img, 2, 0, 8).number === 100 && M.readEncoder(img, 2, 0, 9).number === 31, 'rules per control');
+    assert(B.applyField(img, 2, 0, [14, 15], 'enc', 'link', 1) === 1 && M.readEncoder(img, 2, 0, 15).link === 0);
+    assert(JSON.stringify(B.locate(M.dataBase(5, 6) + 128 + 3 * 4 + 2)) === JSON.stringify({ setup: 5, group: 6, index: 3 }));
+    assert(JSON.stringify(B.locate(M.key2Base(1, 2) + 16 + 7)) === JSON.stringify({ setup: 1, group: 2, index: 7 }));
+  });
+
+  test('undo and redo, with typing merged into one step', () => {
+    const img = demoImage();
+    const orig = img.slice();
+    const h = new History(img);
+    h.record(() => M.setEncoder(img, 0, 0, 0, 'channel', 5), { now: 1000 });
+    for (const [k, name] of ['A', 'AB', 'ABC'].entries()) h.record(() => M.setEncoder(img, 0, 0, 1, 'name', name), { key: 'n', now: 2000 + k * 100 });
+    assert(h.done.length === 2, 'typing is one step: ' + h.done.length);
+    assert(h.record(() => {}) === null, 'no-op is not a step');
+    h.undo();
+    assert(M.readEncoder(img, 0, 0, 1).name === M.readEncoder(orig, 0, 0, 1).name, 'name back');
+    h.undo();
+    eqBytes(img, orig, 'all undone');
+    assert(!h.canUndo && h.canRedo);
+    h.redo();
+    h.redo();
+    assert(M.readEncoder(img, 0, 0, 0).channel === 5 && M.readEncoder(img, 0, 0, 1).name === 'ABC ');
+    h.undo();
+    h.record(() => M.setEncoder(img, 0, 0, 2, 'mode', 0));
+    assert(!h.canRedo, 'a new edit clears redo');
   });
 
   test('a twist while pushing does not leave the push button', () => {

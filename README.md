@@ -48,8 +48,13 @@ and open <http://localhost:8000/>. After pulling a newer version, hard-reload (C
 
 ## Use
 
-- **Browse.** The sidebar lists setups and groups by name. ● means read, ○ means not read yet, and an orange dot marks changes. ◂ is where the device is. The grid shows the 4×4 controls: the upper part of a cell is the encoder, the lower part its push button. Arrow keys move, Space switches between turn and push, PgUp/PgDn change group.
-- **Edit.** The inspector applies the rules of the EC4's setup data format:
+- **Browse.** The sidebar lists setups and groups by name. ● means read, ○ means not read yet, and an orange dot marks changes. ◂ is where the device is. The grid shows the 4×4 controls of the group. **Turn / Push** above it switches all 16 boxes between encoders and push buttons; each box's bottom line shows the other one, and clicking it switches. Arrow keys move, Space switches Turn/Push, PgUp/PgDn change group.
+- **Edit in the boxes.** Each box has fields for its name, type, channel, number (MSB and LSB for NRPN, with the note name for notes) and lower/upper. Tab moves through them. A field in a box changes only that control. Display, mode, link and the push button's Key/Toggle and display are in the side panel.
+- **Select several.** Shift-click selects a range of boxes, ⌘/Ctrl-click adds or removes one, and ⌘A or **Select all** takes all 16; Esc goes back to one. With several selected, the side panel shows each field's shared value or "mixed", and a change applies to every selected control that uses the field (so a number doesn't go to a program change).
+- **Copy and paste.** **Copy** copies the selected controls (encoder, push button and name), the whole group or the whole setup (group and setup names included). **Paste** puts it over the selection, the current group or the current setup. One copied control goes into every selected box; several go into consecutive boxes from the first selected one. ⌘C/⌘V do the same for controls, and the clipboard works between Lilypad tabs. A pasted link on control 16 is cleared.
+- **Fill.** **Fill** counts channels or numbers up by one, starting from the first selected control's value: across the selection, or from the selected box to box 16. Channels wrap after 16 and numbers after 127. Controls that don't use the field are skipped.
+- **Undo.** ⌘Z / ⇧⌘Z (or ↶ ↷ in the top bar) undo and redo every edit, bulk ones included, and show where the change was. Typing a name counts as one step. Undoing after a write makes those bytes pending again. Opening a file, discarding or re-reading a setup clears the history.
+- **Edit.** The side panel applies the rules of the EC4's setup data format:
   - Fields that don't apply are greyed out.
   - CCAh numbers run 0–31, and NRPN takes an MSB and an LSB.
   - Lower/upper are 14-bit (0–4094, or 16383 for max) for CCAh/PBnd/NRPN with display off/1000/±500/9999, and 7-bit otherwise.
@@ -87,6 +92,8 @@ faderfrog speaks a small SysEx protocol on the EC4's USB port: `F0 7D 45 43 34 <
 | `js/syx.js` | the EC4's nibble SysEx file format |
 | `js/model.js` | memory map, value tables, rules, field get/set |
 | `js/store.js` | image, device and file baselines, diff chunking |
+| `js/bulk.js` | copy/paste of controls, groups and setups; fill; one field on several controls |
+| `js/history.js` | undo/redo steps that keep only the changed bytes |
 | `test/` | core tests |
 
 ## Tests

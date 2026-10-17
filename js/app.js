@@ -4,6 +4,8 @@ import * as M from './model.js';
 import { Store } from './store.js';
 import { Device } from './device.js';
 import { TouchFilter } from './touch.js';
+import * as B from './bulk.js';
+import { History } from './history.js';
 import { MockDevice, imageFromSetupsOnly } from './mock.js';
 import { demoImage } from './demo.js';
 import { midiAccess, midiPermission, portPairs, midiTransport } from './midi.js';
@@ -19,7 +21,7 @@ class Cancelled extends Error {}
 
 const S = {
   store: new Store(),
-  sel: { setup: 0, group: 0, kind: 'enc', index: 0 },
+  sel: { setup: 0, group: 0, kind: 'enc', index: 0, multi: null }, // multi: Set of indices when several are selected
   view: 'group', // 'group' | 'globals'
   conn: null, // {dev, kind, name, info}
   devState: null, // {setup, group} as last reported by the device
@@ -51,6 +53,9 @@ function savePrefs() {
     localStorage.setItem(PREFS_KEY, JSON.stringify(S.prefs));
   } catch {}
 }
+
+S.history = new History(S.store.img);
+const CLIP_KEY = 'lilypad-clipboard';
 
 const dialog = () => $('#dialog');
 const img = () => S.store.img;
@@ -172,6 +177,7 @@ function go(setup, group, { kind, index, fromDevice = false } = {}) {
   S.sel.group = group;
   if (kind) S.sel.kind = kind;
   if (index !== undefined) S.sel.index = index;
+  if (moved || index !== undefined) S.sel.multi = null;
   S.view = 'group';
   ensureSetup(setup, group);
   if (moved && !fromDevice && S.prefs.moveDevice && S.conn && S.conn.info) {
@@ -226,8 +232,19 @@ function pendingSummary() {
 
 function edited() {
   S.store.changed();
-  renderAll();
+  scheduleRender();
   if (S.prefs.autoWrite && S.conn) scheduleAutoWrite();
+}
+
+// Rendering runs just after the event that caused it: a change event fired by Tab has to let
+// the focus reach the next field first, so the redraw can keep it there. (A timer, not
+// requestAnimationFrame, which stops in background tabs.)
+let renderPending = 0;
+function scheduleRender() {
+  if (!renderPending) renderPending = setTimeout(() => {
+    renderPending = 0;
+    renderAll();
+  }, 0);
 }
 
 let autoTimer = 0;
@@ -324,9 +341,10 @@ async function connect({ auto = false } = {}) {
   const st = S.store;
   if (st.valid.some((v) => v)) {
     const pend = st.fileInfo || st.deviceDirtyBytes() > 0;
+    let choice = null;
     if (pend) {
       const what = st.fileInfo ? `data from ${st.fileInfo.name}` : 'changes that were never written';
-      const choice = await modal(dialog(), {
+      choice = await modal(dialog(), {
         title: 'Editor already has data',
         body: h('p', {}, `The editor holds ${what}. Keep it as changes to write to ${transport.name}? The device is read first, so only bytes that differ get written.`),
         buttons: [
@@ -339,6 +357,7 @@ async function connect({ auto = false } = {}) {
       if (choice === 'discard') st.clear();
       else st.dev.clear();
     } else st.clear();
+    if (choice !== 'keep') S.history.clear();
   }
 
   const dev = new Device(transport, { log: logLine });
@@ -499,7 +518,7 @@ function onDeviceTouch(e) {
   setTimeout(() => {
     if (S.flash && performance.now() - S.flash.t >= 590) {
       S.flash = null;
-      renderGrid();
+      document.querySelectorAll('.cell.flash').forEach((c) => c.classList.remove('flash'));
     }
   }, 600);
 }
@@ -566,6 +585,7 @@ async function rereadSetup() {
     S.store.valid[p] = 0;
     S.store.dev.valid[p] = 0;
   }
+  S.history.clear();
   // The shared names page holds other setups' names too: keep their edits.
   const names = img().slice(M.A.SETUP_NAMES, M.A.SETUP_NAMES + 64);
   await job(`Re-reading setup ${s + 1}`, (j) => readPages(j, pages)).catch(showError);
@@ -665,6 +685,7 @@ async function openFile(file) {
     st.clear();
   } else st.clear();
   st.file.clear();
+  S.history.clear();
   st.fromFile(c.pages);
   st.fileInfo = { name: file.name, header: { ...c.header }, padding: c.padding, full, kind };
   if (!S.prefs.seenIntro) {
@@ -722,6 +743,7 @@ async function discardChanges() {
   });
   if (!ok) return;
   S.store.revert(!!S.conn || !S.store.fileInfo);
+  S.history.clear();
   if (S.conn) S.store.fileInfo = null; // the editor now holds device data, not the file
   edited();
   ensureSetup(S.sel.setup, S.sel.group);
@@ -759,6 +781,8 @@ function renderToolbar() {
   $('#readall').disabled = !info || busy || S.store.valid.every((v) => v);
   $('#dumpall').disabled = !info || busy;
   $('#discard').disabled = busy || (!pend.bytes && !pend.unknown);
+  $('#undo').disabled = !S.history.canUndo;
+  $('#redo').disabled = !S.history.canRedo;
   const allSetups = S.store.hasPages(range(M.A.SETUPS_START >> 6, M.NPAGES));
   const all = S.store.valid.every((v) => v);
   $('#save').disabled = busy || (!allSetups && !info);
@@ -815,9 +839,9 @@ function renderMain() {
   const head = h('div', { class: 'group-head' },
     h('div', { class: 'crumb' },
       h('label', {}, 'Setup ', h('b', {}, s + 1)),
-      nameInput('setupname', st.valid[M.SETUP_NAMES_PAGE] ? M.readName(st.img, M.setupNameAddr(s)) : '', (v) => edit(() => M.writeName(img(), M.setupNameAddr(s), v)), !st.valid[M.SETUP_NAMES_PAGE], `SE${String(s).padStart(2, '0')}`),
+      nameInput('setupname', st.valid[M.SETUP_NAMES_PAGE] ? M.readName(st.img, M.setupNameAddr(s)) : '', (v) => edit(() => M.writeName(img(), M.setupNameAddr(s), v), { key: 'setupname' + s, label: 'setup name' }), !st.valid[M.SETUP_NAMES_PAGE], `SE${String(s).padStart(2, '0')}`),
       h('label', {}, 'Group ', h('b', {}, g + 1)),
-      nameInput('groupname', ready ? M.readName(st.img, M.groupNameAddr(s, g)) : '', (v) => edit(() => M.writeName(img(), M.groupNameAddr(s, g), v)), !ready, `GR${String(g).padStart(2, '0')}`)),
+      nameInput('groupname', ready ? M.readName(st.img, M.groupNameAddr(s, g)) : '', (v) => edit(() => M.writeName(img(), M.groupNameAddr(s, g), v), { key: `groupname${s}/${g}`, label: 'group name' }), !ready, `GR${String(g).padStart(2, '0')}`)),
     h('div', { class: 'nav' },
       h('button', { class: 'small', title: 'previous group', onclick: () => go(s, (g + 15) % 16) }, '‹'),
       h('button', { class: 'small', title: 'next group', onclick: () => go(s, (g + 1) % 16) }, '›'),
@@ -830,47 +854,287 @@ function renderMain() {
     const retry = !reading && S.conn?.info ? h('button', { class: 'small', onclick: () => ensureSetup(s, g) }, 'Read it now') : null;
     return replace(main, head, h('div', { class: 'grid placeholder' }, range(0, 16).map(() => h('div', { class: 'cell ghost' }))), h('p', { class: 'hint center' }, msg, retry));
   }
-  replace(main, head, h('div', { class: 'grid', id: 'grid' }), legend());
-  renderGrid();
+  // The cells are built before they go into the page, so focus in a box survives the redraw.
+  replace(main, head, h('div', { id: 'groupbar', class: 'groupbar' }, groupBarItems()), h('div', { class: 'grid', id: 'grid' }, gridCells()), legend());
 }
 
 function legend() {
-  return h('p', { class: 'hint' }, 'Click the upper part of a cell for the encoder (turn), the lower part for its push button. Arrow keys move, Space switches turn/push. ',
+  return h('p', { class: 'hint' }, 'Click a box to select it; Shift-click selects a range, ⌘/Ctrl-click adds or removes one. ',
+    'The fields in a box edit that control; the side panel edits everything selected. Arrow keys move, Space switches Turn/Push, ⌘C/⌘V copy and paste, ⌘Z undoes. ',
     S.conn ? 'Turning or pushing a control on the device selects it here.' : '');
+}
+
+// ---- selection
+
+const selected = () => (S.sel.multi && S.sel.multi.size > 1 ? [...S.sel.multi].sort((a, b) => a - b) : [S.sel.index]);
+
+// Updates the selection without rebuilding the grid (an open dropdown in a box stays open).
+function setSelection(index, multi = null, kind = S.sel.kind) {
+  const kindChanged = kind !== S.sel.kind;
+  Object.assign(S.sel, { index, multi: multi && multi.size > 1 ? multi : null, kind });
+  if (kindChanged) return renderAll();
+  paintSelection();
+  renderGroupBar();
+  renderInspector();
+}
+
+function paintSelection() {
+  const sel = new Set(selected());
+  for (const c of document.querySelectorAll('#grid .cell')) {
+    const i = Number(c.dataset.i);
+    c.classList.toggle('sel', sel.has(i));
+    c.classList.toggle('focus', i === S.sel.index && sel.size > 1);
+  }
+}
+
+function selectControl(kind, i) {
+  setSelection(i, null, kind);
+}
+
+function selectAll() {
+  setSelection(S.sel.index, new Set(range(0, 16)));
+}
+
+// Mouse down in a box: plain = this one, Shift = range from the last plain click, ⌘/Ctrl = toggle.
+// A click into a field of the box selects that box alone.
+function cellPointer(ev, i) {
+  if (ev.button !== 0) return;
+  const inField = ev.target.closest('input, select, button');
+  if (inField) {
+    if (S.sel.index !== i || selected().length > 1) setSelection(i);
+    return;
+  }
+  if (ev.shiftKey || ev.metaKey || ev.ctrlKey) {
+    ev.preventDefault(); // no text selection; and leave any field, so ⌘C copies controls
+    document.activeElement?.blur?.();
+  }
+  if (ev.shiftKey) {
+    const [a, b] = [Math.min(S.sel.index, i), Math.max(S.sel.index, i)];
+    setSelection(S.sel.index, new Set(range(a, b + 1)));
+  } else if (ev.metaKey || ev.ctrlKey) {
+    const set = new Set(selected());
+    if (set.has(i) && set.size > 1) set.delete(i);
+    else set.add(i);
+    setSelection(set.has(i) ? i : [...set][0], set);
+  } else setSelection(i);
+}
+
+// ---- the 16 boxes
+
+const ENC_SHORT = M.ENC_TYPES.map((t, v) => ({ value: v, label: t.short }));
+const PUSH_SHORT = M.PUSH_TYPES.map((t, v) => ({ value: v, label: t.short }));
+
+function cellNum(key, value, min, max, onCommit, disabled, title) {
+  const el = numField(key, value, min, max, onCommit, disabled);
+  el.className = 'cn';
+  if (title) el.title = title;
+  return el;
+}
+function cellSelect(key, options, value, onCommit, disabled, title) {
+  const el = selectField(key, options, value, onCommit, disabled);
+  el.className = 'cs';
+  if (title) el.title = title;
+  return el;
+}
+
+function encCell(s, g, i, e) {
+  const r = M.encoderRules(e, i);
+  const set = (field) => (v) => edit(() => M.setEncoder(img(), s, g, i, field, v), { label: `encoder ${i + 1} ${field}` });
+  const k = (f) => `c${i}:${f}`;
+  let number;
+  if (r.numberHigh.enabled) {
+    number = [cellNum(k('msb'), Math.min(e.numberHigh, 127), 0, 127, set('numberHigh'), false, 'NRPN MSB'), h('span', { class: 'sep' }, ':'),
+      cellNum(k('num'), e.number, 0, 127, set('number'), false, 'NRPN LSB')];
+  } else {
+    number = [cellNum(k('num'), Math.min(e.number, r.number.max), 0, r.number.max, set('number'), !r.number.enabled, r.number.enabled ? `${r.number.label} 0–${r.number.max}` : `not used by ${M.ENC_TYPES[e.type].short}`),
+      r.number.kind === 'note' ? h('span', { class: 'note' }, M.noteName(e.number)) : null];
+  }
+  const lu = r.lower;
+  return [
+    h('div', { class: 'frow' }, cellSelect(k('type'), ENC_SHORT, e.type, set('type'), false, M.ENC_TYPES[e.type].label), cellSelect(k('ch'), channelOptions('ch '), e.channel, set('channel'), false, 'MIDI channel')),
+    h('div', { class: 'frow' + (r.number.enabled ? '' : ' off') }, h('span', { class: 'fl' }, r.numberHigh.enabled ? 'NRPN' : r.number.kind === 'note' ? 'Note' : '#'), number),
+    h('div', { class: 'frow' + (lu.enabled ? '' : ' off') },
+      cellNum(k('lo'), e.lower, 0, lu.max, set('lower'), !lu.enabled, lu.enabled ? `Lower ${lu.hires ? '0–4094, 16383' : '0–127'}` : `not used by ${M.ENC_TYPES[e.type].short}`),
+      h('span', { class: 'sep' }, '–'),
+      cellNum(k('hi'), e.upper, 0, lu.max, set('upper'), !lu.enabled, lu.enabled ? `Upper ${lu.hires ? '0–4094, 16383' : '0–127'}` : '')),
+  ];
+}
+
+function pushCell(s, g, i, p) {
+  const r = M.pushRules(p, i);
+  const set = (field) => (v) => edit(() => M.setPush(img(), s, g, i, field, v), { label: `push ${i + 1} ${field}` });
+  const k = (f) => `c${i}:p${f}`;
+  const types = p.valid ? PUSH_SHORT : [...PUSH_SHORT, { value: p.type, label: `? ${p.type}` }];
+  const chOpts = r.channel.kind === 'group' ? channelOptions('grp ') : r.channel.kind === 'setup' ? channelOptions('set ') : channelOptions('ch ');
+  return [
+    h('div', { class: 'frow' }, cellSelect(k('type'), types, p.type, set('type'), false, p.valid ? M.PUSH_TYPES[p.type].label : 'invalid type'),
+      cellSelect(k('ch'), chOpts, p.channel, set('channel'), !r.channel.enabled, r.channel.label)),
+    h('div', { class: 'frow' + (r.number.enabled ? '' : ' off') }, h('span', { class: 'fl' }, r.number.kind === 'note' ? 'Note' : '#'),
+      cellNum(k('num'), p.number, 0, 127, set('number'), !r.number.enabled, r.number.label),
+      r.number.kind === 'note' && r.number.enabled ? h('span', { class: 'note' }, M.noteName(p.number)) : null,
+      r.mode.enabled ? h('span', { class: 'pmode' }, M.PUSH_MODES[p.mode].short) : null),
+    h('div', { class: 'frow' + (r.lower.enabled ? '' : ' off') },
+      cellNum(k('lo'), p.lower, 0, 127, set('lower'), !r.lower.enabled, 'Lower 0–127'), h('span', { class: 'sep' }, '–'),
+      cellNum(k('hi'), p.upper, 0, 127, set('upper'), !r.upper.enabled, 'Upper 0–127')),
+  ];
+}
+
+function gridCells() {
+  const { setup: s, group: g, kind } = S.sel;
+  const sel = new Set(selected());
+  return range(0, 16).map((i) => {
+    const e = M.readEncoder(img(), s, g, i);
+    const p = M.readPush(img(), s, g, i);
+    const flash = S.flash && S.flash.index === i ? ' flash flash-' + S.flash.kind : '';
+    const enc = kind === 'enc';
+    const linked = enc ? e.link && i < 15 : p.link && i < 15;
+    const other = enc
+      ? h('button', { class: 'other', title: 'Show the push buttons', onclick: () => setSelection(i, null, 'push') }, h('span', { class: 'pico' }, '●'), ' ', M.pushSummary(p))
+      : h('button', { class: 'other', title: 'Show the encoders', onclick: () => setSelection(i, null, 'enc') }, h('span', { class: 'pico' }, '◎'), ' ', M.encoderSummary(e));
+    return h('div', {
+      class: `cell ${enc ? 'tc' + e.type : 'tp'}` + (sel.has(i) ? ' sel' : '') + (sel.size > 1 && i === S.sel.index ? ' focus' : '') + flash + (controlDirty(s, g, i) ? ' dirty' : ''),
+      dataset: { i: String(i) },
+      onmousedown: (ev) => cellPointer(ev, i),
+    },
+      h('div', { class: 'line1' }, h('span', { class: 'idx' }, i + 1),
+        nameInput(`c${i}:name`, e.name, (v) => edit(() => M.setEncoder(img(), s, g, i, 'name', v), { key: `name${s}/${g}/${i}`, label: `name of control ${i + 1}` }), false, '----'),
+        linked ? h('span', { class: 'link', title: `linked to the next ${enc ? 'encoder' : 'push button'}` }, '⟶') : null),
+      enc ? encCell(s, g, i, e) : pushCell(s, g, i, p),
+      other);
+  });
 }
 
 function renderGrid() {
   const grid = $('#grid');
-  if (!grid || !groupReady()) return;
-  const { setup: s, group: g } = S.sel;
-  const cells = [];
-  for (let i = 0; i < 16; i++) {
-    const e = M.readEncoder(img(), s, g, i);
-    const p = M.readPush(img(), s, g, i);
-    const er = M.encoderRules(e, i);
-    const sel = S.sel.index === i;
-    const flash = S.flash && S.flash.index === i ? ' flash-' + S.flash.kind : '';
-    const rangeTxt = er.lower.enabled ? `${e.lower}–${e.upper}` : '';
-    cells.push(h('div', { class: 'cell' + (sel ? ' sel' : '') + flash + (controlDirty(s, g, i) ? ' dirty' : '') },
-      h('button', { class: 'enc' + (sel && S.sel.kind === 'enc' ? ' on' : ''), onclick: () => selectControl('enc', i), title: `Encoder ${i + 1}` },
-        h('div', { class: 'line1' }, h('span', { class: 'idx' }, i + 1), h('span', { class: 'ename' + (e.blankName ? ' blank' : '') }, e.name),
-          e.link && i < 15 ? h('span', { class: 'link', title: 'linked to the next encoder' }, '⟶') : null),
-        h('div', { class: 'knob t' + e.type }),
-        h('div', { class: 'sum' }, h('span', { class: 'badge t' + e.type }, M.ENC_TYPES[e.type].short), ' ', M.encoderSummary(e).split(' ').slice(1).join(' ')),
-        h('div', { class: 'sub' }, [rangeTxt, er.mode.enabled ? M.MODES[e.mode].short : '', 'disp ' + M.SCALES[e.scale].short].filter(Boolean).join(' · '))),
-      h('button', { class: 'push' + (sel && S.sel.kind === 'push' ? ' on' : ''), onclick: () => selectControl('push', i), title: `Push button ${i + 1}` },
-        h('span', { class: 'pico' }, '●'), h('span', { class: 'psum' + (p.type === 0 ? ' off' : '') }, M.pushSummary(p)),
-        p.type > 0 && p.type < 6 ? h('span', { class: 'pmode' }, M.PUSH_MODES[p.mode].short) : null,
-        p.link && i < 15 ? h('span', { class: 'link' }, '⟶') : null)));
-  }
-  replace(grid, cells);
+  if (grid && groupReady()) replace(grid, gridCells());
 }
 
-function selectControl(kind, i) {
-  S.sel.kind = kind;
-  S.sel.index = i;
-  renderGrid();
-  renderInspector();
+// ---- the bar above the grid: Turn/Push, copy, paste, fill
+
+function renderGroupBar() {
+  const bar = $('#groupbar');
+  if (bar) replace(bar, groupBarItems());
+}
+
+function menu(label, items, title) {
+  return h('details', { class: 'menu', title },
+    h('summary', {}, label),
+    h('div', { class: 'menu-pop' }, items.map(([text, onclick, disabled, hint]) =>
+      h('button', { disabled, onclick: (ev) => {
+        ev.target.closest('details').open = false;
+        onclick();
+      } }, text, hint ? h('span', { class: 'kbd' }, hint) : null))));
+}
+
+function groupBarItems() {
+  const { setup: s, group: g, kind, index } = S.sel;
+  const sel = selected();
+  const what = kind === 'enc' ? 'encoder' : 'push button';
+  const many = sel.length > 1;
+  const clip = getClip();
+  const pasteText = !clip ? ['Clipboard is empty', () => {}, true]
+    : clip.kind === 'controls' ? [`Paste ${clip.items.length === 1 ? 'control' : clip.items.length + ' controls'} into ${clip.items.length === 1 && many ? sel.length + ' selected' : 'control ' + (sel[0] + 1)}`, () => doPaste(clip), false, '⌘V']
+    : clip.kind === 'group' ? [`Paste group (from ${clip.from}) over group ${g + 1}`, () => doPaste(clip), false, '⌘V']
+    : [`Paste setup (from ${clip.from}) over setup ${s + 1}`, () => doPaste(clip), !setupReady(s), '⌘V'];
+  const fillWhere = many ? `across the ${sel.length} selected` : index === 0 ? 'across the group' : `from ${what} ${index + 1} on`;
+  return [
+    h('div', { class: 'seg', title: 'Edit encoders (turn) or push buttons (Space)' },
+      h('button', { class: kind === 'enc' ? 'on' : '', onclick: () => setSelection(index, S.sel.multi, 'enc') }, 'Turn'),
+      h('button', { class: kind === 'push' ? 'on' : '', onclick: () => setSelection(index, S.sel.multi, 'push') }, 'Push')),
+    h('span', { class: 'selinfo' }, many ? `${sel.length} ${what}s selected` : `${what[0].toUpperCase() + what.slice(1)} ${index + 1}`),
+    menu('Copy', [
+      [many ? `Copy ${sel.length} controls` : `Copy control ${index + 1}`, () => doCopy('controls'), false, '⌘C'],
+      [`Copy group ${g + 1}`, () => doCopy('group')],
+      [`Copy setup ${s + 1}`, () => doCopy('setup'), !setupReady(s)],
+    ], 'Copy controls (encoder, push button and name), the group or the setup'),
+    menu('Paste', [pasteText], 'Paste what was copied, in this tab or another Lilypad tab'),
+    menu('Fill', [
+      [`Fill channels ascending ${fillWhere}`, () => doFill('channel')],
+      [`Fill numbers ascending ${fillWhere}`, () => doFill('number')],
+    ], `Count up from the first ${what}'s value, like the unit's Fill menu`),
+    h('button', { class: 'small', onclick: () => (many ? setSelection(index) : selectAll()), title: '⌘A selects all, Esc selects one' }, many ? 'Select one' : 'Select all'),
+  ];
+}
+
+// ---- copy, paste, fill
+
+function getClip() {
+  try {
+    const c = B.decodeClip(localStorage.getItem(CLIP_KEY) || '');
+    if (c) return c;
+  } catch {}
+  return S.clip || null;
+}
+function setClip(clip, text = B.encodeClip(clip)) {
+  S.clip = clip;
+  try {
+    localStorage.setItem(CLIP_KEY, text);
+  } catch {}
+}
+
+function makeClip(kind) {
+  const { setup: s, group: g } = S.sel;
+  if (kind === 'setup' && !setupReady(s)) return say(`Setup ${s + 1} isn't fully read yet; copy it when it is.`, 'error'), null;
+  return kind === 'controls' ? B.copyControls(img(), s, g, selected()) : kind === 'group' ? B.copyGroup(img(), s, g) : B.copySetup(img(), s);
+}
+function describeClip(clip) {
+  return clip.kind === 'controls' ? (clip.items.length === 1 ? 'a control' : `${clip.items.length} controls`) : clip.kind === 'group' ? `group (${clip.from})` : `setup (${clip.from})`;
+}
+
+function doCopy(kind) {
+  const clip = makeClip(kind);
+  if (!clip) return;
+  const text = B.encodeClip(clip);
+  setClip(clip, text);
+  navigator.clipboard?.writeText(text).catch(() => {});
+  say(`Copied ${describeClip(clip)}.`, 'ok');
+  renderGroupBar();
+}
+
+function doPaste(clip) {
+  const { setup: s, group: g } = S.sel;
+  if (S.view !== 'group' || !groupReady()) return;
+  if (clip.kind === 'setup' && !setupReady(s)) return say(`Setup ${s + 1} isn't fully read yet; paste when it is.`, 'error');
+  let what;
+  edit(() => {
+    if (clip.kind === 'controls') {
+      const done = B.pasteControls(img(), s, g, selected(), clip);
+      what = done.length === 1 ? `control ${done[0] + 1}` : `controls ${done.map((i) => i + 1).join(', ')}`;
+    } else if (clip.kind === 'group') {
+      B.pasteGroup(img(), s, g, clip);
+      what = `group ${g + 1}`;
+    } else {
+      B.pasteSetup(img(), s, clip);
+      what = `setup ${s + 1}`;
+    }
+  }, { label: 'paste' });
+  say(what ? `Pasted ${describeClip(clip)} into ${what}. ⌘Z undoes it.` : 'Nothing changed: the clipboard matches.', 'ok');
+}
+
+function doFill(field) {
+  const { setup: s, group: g, kind, index } = S.sel;
+  const sel = selected();
+  const targets = sel.length > 1 ? sel : range(index, 16);
+  let n = 0;
+  edit(() => (n = B.fill(img(), s, g, targets, kind, field)), { label: `fill ${field}s` });
+  const what = field === 'channel' ? 'channels' : 'numbers';
+  say(n ? `Filled ${what} of ${plural(n, kind === 'enc' ? 'encoder' : 'push button')}. ⌘Z undoes it.` : `No selected ${kind === 'enc' ? 'encoder' : 'push button'} uses ${what}.`, n ? 'ok' : 'error');
+}
+
+// ---- undo / redo
+
+function undoRedo(redo) {
+  const step = redo ? S.history.redo() : S.history.undo();
+  if (!step) return;
+  S.store.changed();
+  const where = B.locate(step.changes.keys().next().value);
+  if (where.globals) S.view = 'globals';
+  else if (where.setup !== undefined && where.group !== undefined && (where.setup !== S.sel.setup || where.group !== S.sel.group || S.view !== 'group')) {
+    go(where.setup, where.group, where.index !== undefined ? { index: where.index } : {});
+  }
+  say(`${redo ? 'Redid' : 'Undid'} ${step.label || 'edit'}.`);
+  scheduleRender();
+  if (S.prefs.autoWrite && S.conn) scheduleAutoWrite();
 }
 
 // ---- inspector
@@ -902,9 +1166,10 @@ function nameInput(key, value, onInput, disabled, placeholder) {
   });
 }
 
-function edit(fn) {
-  fn();
-  edited();
+// Every change to the settings goes through here: one undo step each. Edits with the same
+// key in quick succession (typing a name) are one step.
+function edit(fn, { key = null, label = '' } = {}) {
+  if (S.history.record(fn, { key, label })) edited();
 }
 
 function numField(key, value, min, max, onCommit, disabled) {
@@ -919,7 +1184,7 @@ function numField(key, value, min, max, onCommit, disabled) {
 }
 
 function selectField(key, options, value, onCommit, disabled) {
-  return h('select', { dataset: { key }, disabled, onchange: (ev) => onCommit(Number(ev.target.value)) },
+  return h('select', { dataset: { key }, disabled, onchange: (ev) => ev.target.value !== '' && onCommit(Number(ev.target.value)) },
     options.map((o) => h('option', { value: String(o.value), selected: o.value === value }, o.label)));
 }
 
@@ -943,21 +1208,63 @@ function renderInspector() {
   if (S.view !== 'group' || !groupReady()) return replace(el, h('div', { class: 'insp-empty' }, S.view === 'globals' ? 'Global settings apply to the whole unit.' : ''));
   const { setup: s, group: g, index: i, kind } = S.sel;
   const tabs = h('div', { class: 'tabs' },
-    h('button', { class: kind === 'enc' ? 'on' : '', onclick: () => selectControl('enc', i) }, 'Encoder'),
-    h('button', { class: kind === 'push' ? 'on' : '', onclick: () => selectControl('push', i) }, 'Push button'));
+    h('button', { class: kind === 'enc' ? 'on' : '', onclick: () => setSelection(i, S.sel.multi, 'enc') }, 'Encoder'),
+    h('button', { class: kind === 'push' ? 'on' : '', onclick: () => setSelection(i, S.sel.multi, 'push') }, 'Push button'));
+  const sel = selected();
+  if (sel.length > 1) {
+    return replace(el,
+      h('div', { class: 'insp-title' }, h('span', { class: 'big' }, `${sel.length} ${kind === 'enc' ? 'encoders' : 'push buttons'}`), h('span', { class: 'where' }, `Setup ${s + 1} · Group ${g + 1}`)),
+      tabs,
+      h('p', { class: 'hint' }, `Controls ${sel.map((x) => x + 1).join(', ')}. A change here applies to every selected control that uses the field.`),
+      h('div', { class: 'fields' }, multiFields(s, g, sel, kind)));
+  }
   const e = M.readEncoder(img(), s, g, i);
   const title = h('div', { class: 'insp-title' },
     h('span', { class: 'big' }, `${kind === 'enc' ? 'Encoder' : 'Push'} ${i + 1}`),
     h('span', { class: 'where' }, `Setup ${s + 1} · Group ${g + 1}`));
-  const nameRow = row('Name', nameInput('encname', e.name.trimEnd(), (v) => edit(() => M.setEncoder(img(), s, g, i, 'name', v)), false, '----'),
+  const nameRow = row('Name', nameInput('encname', e.name.trimEnd(), (v) => edit(() => M.setEncoder(img(), s, g, i, 'name', v), { key: `name${s}/${g}/${i}`, label: `name of control ${i + 1}` }), false, '----'),
     { hint: kind === 'push' ? 'shared with the encoder' : '' });
   const body = kind === 'enc' ? encoderFields(s, g, i, e) : pushFields(s, g, i);
   replace(el, title, tabs, h('div', { class: 'fields' }, nameRow, body), addrInfo(s, g, i));
 }
 
+// Side panel for several controls: a shared value, or "mixed".
+function multiFields(s, g, targets, kind) {
+  const im = img();
+  const opts = (list, fmt) => list.map((t, v) => ({ value: v, label: fmt(t) }));
+  const specs = kind === 'enc'
+    ? [['name', 'Name', 'text'], ['type', 'Type', opts(M.ENC_TYPES, (t) => `${t.short} — ${t.label}`)], ['channel', 'Channel', channelOptions()],
+      ['number', 'Number', 'num'], ['numberHigh', 'NRPN MSB', 'num'], ['lower', 'Lower', 'num'], ['upper', 'Upper', 'num'],
+      ['scale', 'Display', opts(M.SCALES, (t) => t.label)], ['mode', 'Mode', opts(M.MODES, (t) => `${t.short} — ${t.label}`)], ['link', 'Link', 'check']]
+    : [['name', 'Name', 'text'], ['type', 'Type', opts(M.PUSH_TYPES, (t) => `${t.short} — ${t.label}`)], ['channel', 'Channel', channelOptions()],
+      ['number', 'Number', 'num'], ['mode', 'Mode', opts(M.PUSH_MODES, (t) => t.label)], ['display', 'Display', [{ value: 0, label: 'Off' }, { value: 1, label: 'On' }]],
+      ['lower', 'Lower', 'num'], ['upper', 'Upper', 'num'], ['link', 'Link', 'check']];
+  return specs.map(([field, label, ctl]) => {
+    const apply = targets.filter((i) => B.fieldApplies(im, s, g, i, kind, field));
+    if (field === 'numberHigh' && !apply.length) return null; // only when the selection has NRPN
+    const values = apply.map((i) => B.readField(im, s, g, i, kind, field));
+    const same = values.length > 0 && values.every((v) => v === values[0]);
+    const enabled = apply.length > 0;
+    const set = (v) => edit(() => B.applyField(img(), s, g, targets, kind, field, v),
+      { key: field === 'name' ? `mname${s}/${g}/${targets.join()}` : null, label: `${label.toLowerCase()} of ${plural(apply.length, 'control')}` });
+    const key = 'm:' + field;
+    let control;
+    if (ctl === 'text') control = nameInput(key, same ? values[0] : '', set, !enabled, 'mixed');
+    else if (ctl === 'check') {
+      control = h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: same && !!values[0], indeterminate: !same && enabled, disabled: !enabled, dataset: { key }, onchange: (ev) => set(ev.target.checked ? 1 : 0) }), same ? '' : 'mixed');
+    } else if (ctl === 'num') {
+      const hires = kind === 'enc' && (field === 'lower' || field === 'upper') && apply.some((i) => M.readEncoder(im, s, g, i).hires);
+      control = numField(key, same ? values[0] : '', 0, hires ? M.HIRES_MAX : 127, set, !enabled);
+      if (!same) control.placeholder = 'mixed';
+    } else control = selectField(key, same ? ctl : [{ value: '', label: '— mixed —' }, ...ctl], same ? values[0] : '', set, !enabled);
+    const hint = !enabled ? 'not used by the selected controls' : apply.length < targets.length ? `used by ${apply.length} of ${targets.length}` : '';
+    return row(label, control, { enabled, hint });
+  });
+}
+
 function encoderFields(s, g, i, e) {
   const r = M.encoderRules(e, i);
-  const set = (field) => (v) => edit(() => M.setEncoder(img(), s, g, i, field, v));
+  const set = (field) => (v) => edit(() => M.setEncoder(img(), s, g, i, field, v), { label: `encoder ${i + 1} ${field}` });
   const out = [];
   const warn = [];
   if (e.rawType !== e.type) warn.push(`stored type ${e.rawType} is invalid; the EC4 uses ${M.ENC_TYPES[e.type].short}`);
@@ -994,7 +1301,7 @@ function encoderFields(s, g, i, e) {
 function pushFields(s, g, i) {
   const p = M.readPush(img(), s, g, i);
   const r = M.pushRules(p, i);
-  const set = (field) => (v) => edit(() => M.setPush(img(), s, g, i, field, v));
+  const set = (field) => (v) => edit(() => M.setPush(img(), s, g, i, field, v), { label: `push ${i + 1} ${field}` });
   const out = [];
   const types = M.PUSH_TYPES.map((t, v) => ({ value: v, label: `${t.short} — ${t.label}` }));
   if (!p.valid) types.push({ value: p.type, label: `invalid (${p.type})` });
@@ -1268,15 +1575,27 @@ async function loadMockFile(file) {
 // ------------------------------------------------------------------ keyboard
 
 function onKey(ev) {
+  const mod = ev.metaKey || ev.ctrlKey;
+  const key = ev.key.toLowerCase();
+  // ⌘Z / ⇧⌘Z / Ctrl+Y: Lilypad's undo, also in a field (a field redrawn after a change has no undo of its own).
+  if (mod && !ev.altKey && (key === 'z' || key === 'y') && !ev.target.closest('dialog')) {
+    ev.preventDefault();
+    return undoRedo(key === 'y' || ev.shiftKey);
+  }
   if (ev.target.closest('input, select, textarea, dialog') || S.view !== 'group' || !groupReady()) return;
   const i = S.sel.index;
   const moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -4, ArrowDown: 4 };
-  if (ev.key in moves) {
+  if (mod && key === 'a') {
+    ev.preventDefault();
+    selectAll();
+  } else if (ev.key === 'Escape') {
+    setSelection(i);
+  } else if (ev.key in moves) {
     ev.preventDefault();
     selectControl(S.sel.kind, (i + moves[ev.key] + 16) % 16);
   } else if (ev.key === ' ') {
     ev.preventDefault();
-    selectControl(S.sel.kind === 'enc' ? 'push' : 'enc', i);
+    setSelection(i, S.sel.multi, S.sel.kind === 'enc' ? 'push' : 'enc');
   } else if (ev.key === 'PageDown' || ev.key === 'PageUp') {
     ev.preventDefault();
     go(S.sel.setup, (S.sel.group + (ev.key === 'PageDown' ? 1 : 15)) % 16);
@@ -1311,6 +1630,32 @@ function init() {
   $('#about').onclick = () => showAbout();
   $('#savefull').onclick = () => saveSyx(true);
   document.addEventListener('keydown', onKey);
+  $('#undo').onclick = () => undoRedo(false);
+  $('#redo').onclick = () => undoRedo(true);
+  // ⌘C / ⌘V outside text fields copy and paste the selected controls (via the system clipboard,
+  // so it works between Lilypad tabs too). Selected page text (the log, a hint) copies as text.
+  const inText = (t) => t?.closest?.('input, textarea');
+  document.addEventListener('copy', (e) => {
+    if (inText(e.target) || !document.getSelection().isCollapsed || S.view !== 'group' || !groupReady()) return;
+    const clip = makeClip('controls');
+    const text = B.encodeClip(clip);
+    e.clipboardData.setData('text/plain', text);
+    e.preventDefault();
+    setClip(clip, text);
+    say(`Copied ${describeClip(clip)}.`, 'ok');
+    renderGroupBar();
+  });
+  document.addEventListener('paste', (e) => {
+    if (inText(e.target) || S.view !== 'group' || !groupReady()) return;
+    const clip = B.decodeClip(e.clipboardData.getData('text/plain')) || getClip();
+    if (!clip) return;
+    e.preventDefault();
+    doPaste(clip);
+  });
+  document.addEventListener('click', (e) => {
+    for (const d of document.querySelectorAll('details.menu[open]')) if (!d.contains(e.target)) d.open = false;
+  });
+  window.addEventListener('storage', (e) => e.key === CLIP_KEY && renderGroupBar());
   document.addEventListener('dragover', (e) => e.preventDefault());
   document.addEventListener('drop', (e) => {
     e.preventDefault();
@@ -1329,7 +1674,7 @@ function init() {
 }
 
 // For debugging from the console.
-window.lilypad = { S, M, writeChanges, connect, disconnect, go, openFile, saveSyx, edit };
+window.lilypad = { S, M, B, writeChanges, connect, disconnect, go, openFile, saveSyx, edit, undoRedo, setSelection, doCopy, doPaste, doFill, getClip };
 
 init();
 reconnectOnLoad().catch(showError);
