@@ -1,0 +1,5 @@
+.DS_Store
+*.log
+# your own dumps for the optional file tests
+test/local/
+*.syx

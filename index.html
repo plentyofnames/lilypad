@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lilypad · EC4 editor for faderfrog</title>
+  <meta name="description" content="Unofficial browser editor for the Faderfox EC4 running the faderfrog custom firmware. Not affiliated with Faderfox.">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">lilypad<span>EC4 editor for faderfrog</span></div>
+    <div class="group conn">
+      <select id="target" title="Where to connect">
+        <option value="mock" selected>Demo EC4 (simulated)</option>
+        <option value="midi">EC4 over MIDI (faderfrog)</option>
+      </select>
+      <select id="midiport" hidden title="MIDI port"></select>
+      <button id="connect">Connect</button>
+      <span id="devinfo" class="chip">offline</span>
+    </div>
+    <div class="group dev">
+      <button id="write" class="primary" title="Write the changed bytes to the device, then RELOAD">Write</button>
+      <button id="reread" title="Read the current setup from the device again">Re-read setup</button>
+      <button id="readall" title="Read everything not read yet (about 30 s for all 64 KB)">Read all</button>
+      <button id="dumpall" title="Back up the whole EEPROM with DUMP_ALL (about 67 s)">Backup…</button>
+    </div>
+    <div class="group file">
+      <button id="discard" title="Throw away changes">Discard</button>
+      <button id="open" title="Open a stock all-setups dump or a full EEPROM dump (or drop a file on the page)">Open .syx…</button>
+      <button id="save" title="Save all setups (0x0B00–0xFFFF) in the stock container; the stock firmware loads it with Setup → Receive">Save .syx</button>
+      <button id="savefull" title="Save the full 64 KB EEPROM, globals included (faderfrog dump format)">Save full dump</button>
+      <button id="about" title="What Lilypad is">About</button>
+    </div>
+    <input type="file" id="fileinput" accept=".syx,.SYX" hidden>
+    <input type="file" id="mockfile" accept=".syx,.SYX" hidden>
+  </header>
+
+  <div class="layout">
+    <nav id="setups" aria-label="Setups and groups"></nav>
+    <main id="main"></main>
+    <aside id="inspector"></aside>
+  </div>
+
+  <section id="mockpanel" hidden aria-label="Demo EC4"></section>
+  <pre id="log" hidden></pre>
+  <footer id="status"></footer>
+  <dialog id="dialog"></dialog>
+</body>
+</html>
