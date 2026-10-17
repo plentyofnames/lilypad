@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lilypad · EC4 editor for faderfrog</title>
   <meta name="description" content="Unofficial browser editor for the Faderfox EC4 running the faderfrog custom firmware. Not affiliated with Faderfox.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 16 L29.5 9.5 A15 15 0 1 1 22.5 2.5 Z' fill='%2366b84a'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
   <header class="top">
-    <div class="brand">lilypad<span>EC4 editor for faderfrog</span></div>
+    <div class="brand"><svg class="pad" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 16 L29.5 9.5 A15 15 0 1 1 22.5 2.5 Z" fill="currentColor"/><path d="M16 16 L26 6" stroke="var(--panel)" stroke-width="1.6" stroke-linecap="round"/></svg>lilypad<span>EC4 editor for faderfrog</span></div>
     <div class="group conn">
       <select id="target" title="Where to connect">
         <option value="mock" selected>Demo EC4 (simulated)</option>

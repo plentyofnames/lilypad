@@ -83,8 +83,9 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
-.brand { font-weight: 800; font-size: 17px; letter-spacing: 0.5px; }
-.brand span { font-weight: 400; font-size: 13px; color: var(--muted); margin-left: 7px; }
+.brand { display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 17px; letter-spacing: 0.5px; }
+.brand .pad { width: 20px; height: 20px; color: var(--pad); }
+.brand span { font-weight: 400; font-size: 13px; color: var(--muted); margin-left: 2px; }
 .top .group { display: flex; align-items: center; gap: 6px; }
 .top .file { margin-left: auto; }
 .chip {
