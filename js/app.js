@@ -772,10 +772,24 @@ function selectControl(kind, i) {
 
 // ---- inspector
 
+// Names are stored padded to 4 characters; the box shows them without the padding and
+// selects the whole name on focus, so typing replaces it.
 function nameInput(key, value, onInput, disabled, placeholder) {
   return h('input', {
-    type: 'text', class: 'name', maxlength: 4, spellcheck: false, value, placeholder, disabled, dataset: { key },
+    type: 'text', class: 'name', maxlength: 4, spellcheck: false, value: value.replace(/ +$/, ''), placeholder, disabled, dataset: { key },
     title: 'Up to 4 characters: A–Z a–z 0–9 space . / -',
+    onfocus: (ev) => {
+      const el = ev.target;
+      if (el.dataset.restoring) return;
+      el.select();
+      el.dataset.justFocused = '1';
+    },
+    onmouseup: (ev) => {
+      if (ev.target.dataset.justFocused) ev.preventDefault(); // keep the selection from the focus
+      delete ev.target.dataset.justFocused;
+    },
+    onkeydown: (ev) => delete ev.target.dataset.justFocused,
+    onblur: (ev) => delete ev.target.dataset.justFocused,
     oninput: (ev) => {
       const el = ev.target;
       const clean = [...el.value].filter((c) => M.NAME_CHARS.test(c)).join('').slice(0, 4);

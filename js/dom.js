@@ -27,16 +27,24 @@ export const $ = (sel, root = document) => root.querySelector(sel);
 
 // Replaces the children of `el`, keeping focus (and the caret) on the element with the
 // same data-key if there was one.
+// A text input being typed in also keeps its text, so the model's padded form (names are
+// stored as 4 characters) doesn't overwrite what the user is typing. Only while the new
+// value is the same up to trailing spaces: if the box now shows another name (the device
+// moved to another group), the typed text is dropped instead of landing there.
 export function replace(el, ...children) {
   const active = document.activeElement;
   const key = active && el.contains(active) ? active.dataset.key : null;
   const caret = key && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd] : null;
+  const typed = key && active.tagName === 'INPUT' && active.type === 'text' ? active.value : null;
   el.replaceChildren();
   append(el, children);
   if (key) {
     const again = el.querySelector(`[data-key="${CSS.escape(key)}"]`);
     if (again) {
+      if (typed !== null && again.type === 'text' && again.value.trimEnd() === typed.trimEnd()) again.value = typed;
+      again.dataset.restoring = '1'; // tells focus handlers this is not a new focus
       again.focus({ preventScroll: true });
+      delete again.dataset.restoring;
       if (caret && again.setSelectionRange && again.type === 'text') {
         try {
           again.setSelectionRange(...caret);
