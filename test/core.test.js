@@ -9,6 +9,7 @@ import * as M from '../js/model.js';
 import { Store, diffChunks } from '../js/store.js';
 import { Device } from '../js/device.js';
 import { MockDevice } from '../js/mock.js';
+import { TouchFilter } from '../js/touch.js';
 import { demoImage } from '../js/demo.js';
 
 const tests = [];
@@ -359,6 +360,25 @@ export async function runTests(load, report = console.log) {
     }
     mock.faults.dropReplies = 0;
     eqBytes(await dev.read(0, 64), imageOf(full).subarray(0, 64), 'works again');
+  });
+
+  test('a twist while pushing does not leave the push button', () => {
+    const f = new TouchFilter();
+    const sel = { setup: 0, group: 2, kind: 'enc', index: 0 };
+    const ev = (kind, index, t) => {
+      const r = f.decide(sel, { kind, index, setup: 0, group: 2 }, t);
+      if (r) Object.assign(sel, { kind: r, index });
+      return r;
+    };
+    assert(ev(1, 4, 1000) === 'push' && sel.kind === 'push' && sel.index === 4);
+    assert(ev(0, 4, 1200) === null, 'twist during the push is ignored');
+    assert(ev(0, 4, 1600) === null, 'a stray turn after it does not count with the one during the push');
+    assert(ev(0, 4, 2600) === null, 'a single slow twist does not switch');
+    assert(ev(0, 4, 2850) === 'enc' && sel.kind === 'enc', 'continued turning switches');
+    assert(ev(0, 4, 3100) === 'enc');
+    assert(ev(1, 4, 4000) === 'push');
+    assert(ev(0, 7, 4100) === 'enc' && sel.index === 7, 'another knob is selected right away');
+    assert(ev(0, 7, 4150) === 'enc');
   });
 
   test('mock sends at most one TOUCH per control per 250 ms', async () => {

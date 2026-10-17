@@ -3,6 +3,7 @@
 import * as M from './model.js';
 import { Store } from './store.js';
 import { Device } from './device.js';
+import { TouchFilter } from './touch.js';
 import { MockDevice, imageFromSetupsOnly } from './mock.js';
 import { demoImage } from './demo.js';
 import { midiAccess, portPairs, midiTransport } from './midi.js';
@@ -390,12 +391,15 @@ function onDeviceState(e) {
   else renderAll();
 }
 
+const touchFilter = new TouchFilter();
+
 function onDeviceTouch(e) {
   const { kind, index, setup, group } = e.detail;
   if (index > 15 || setup > 15 || group > 15) return;
   S.devState = { setup, group };
   S.flash = { kind: kind ? 'push' : 'enc', index, t: performance.now() };
-  if (S.prefs.follow) go(setup, group, { kind: kind ? 'push' : 'enc', index, fromDevice: true });
+  const target = touchFilter.decide(S.sel, e.detail, performance.now()); // null: a twist while pushing
+  if (S.prefs.follow && target) go(setup, group, { kind: target, index, fromDevice: true });
   else renderAll();
   setTimeout(() => {
     if (S.flash && performance.now() - S.flash.t >= 590) {

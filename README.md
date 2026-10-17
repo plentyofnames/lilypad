@@ -78,6 +78,7 @@ faderfrog speaks a small SysEx protocol on the EC4's USB port: `F0 7D 45 43 34 <
 | `js/app.js`, `js/dom.js` | UI |
 | `js/proto.js` | protocol v1: framing, 8-to-7 packing, checksums, message codecs |
 | `js/device.js` | host client: one request at a time, timeouts and retries, TOUCH/STATE events |
+| `js/touch.js` | what a TOUCH event selects (a twist while pushing keeps the push button) |
 | `js/midi.js` | Web MIDI transport |
 | `js/mock.js` | the demo EC4 |
 | `js/demo.js` | the demo's starting setups, generated from the factory-default rules |
