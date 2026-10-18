@@ -364,6 +364,22 @@ export async function runTests(load, report = console.log) {
     eqBytes(await dev.read(0, 64), imageOf(full).subarray(0, 64), 'works again');
   });
 
+  test('send values on group change (0x0007, faderfrog 0.10)', () => {
+    const img = demoImage();
+    img[7] = 0xFF;
+    assert(M.readGlobals(img).sendValues === false, 'blank is off');
+    M.setGlobal(img, 'sendValues', 1);
+    assert(img[7] === 1 && M.readGlobals(img).sendValues === true);
+    M.setGlobal(img, 'sendValues', 0);
+    assert(img[7] === 0 && M.readGlobals(img).sendValues === false);
+    const base = Uint8Array.from(img);
+    img[7] = 1;
+    img[8] = 0x55; // still device-owned
+    img[0] = 3;
+    const chunks = diffChunks(img, base, () => true);
+    assert(chunks.length === 1 && chunks[0].addr === 7 && chunks[0].data.length === 1, JSON.stringify(chunks));
+  });
+
   test('copy/paste of controls, groups and setups', () => {
     const img = demoImage();
     M.setEncoder(img, 0, 0, 2, 'type', M.T.NRPN);

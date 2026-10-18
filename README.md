@@ -61,11 +61,11 @@ and open <http://localhost:8000/>. After pulling a newer version, hard-reload (C
   - Push types Off, Acc/LSp/Min/Max and Grp/Set turn their fields off; Grp/Set relabel the channel as Group/Setup.
   - Link is off on control 16.
   - Invalid stored values show with the value the EC4 actually uses.
-- **Device settings** (top of the sidebar): routing, brightness, screensaver, note view and value pop-up.
+- **Device settings** (top of the sidebar): routing, brightness, screensaver, note view and value pop-up. With faderfrog 0.10 or later, also **Send values on group change** (byte `0x0007`): each group or setup change then sends the new group's current values.
 - **Reading.** Data is read lazily, one setup at a time (~2 s, the selected group first). Moving to another setup stops a lazy read, and pages already read stay cached. **Read all** reads the rest (~30 s for 64 KB). **Re-read setup** discards the cache for the current setup.
 - **Write** sends only the changed bytes, as runs of at most 64 bytes that never cross a 64-byte page, then RELOAD. Bytes without a known device value (for example after opening a file while connected) are read first, so the comparison is exact. **Auto-write** (status bar) writes 0.6 s after each edit. **Move device** sends SELECT when you browse, and **Follow device** follows TOUCH and STATE events.
 - **No reply** counts as "busy": a full dump keeps the unit silent for ~67 s. Lilypad keeps retrying a request for up to 75 s and says so in the status bar. **Cancel** or **Disconnect** stops it.
-- **Lilypad never writes** `0x0000` (last setup: a value ≥ 16 factory-resets the unit at boot), `0x0004`, `0x0010`–`0x001F` (last group per setup) or the presets at `0x0800`–`0x0AFF`.
+- **Lilypad never writes** `0x0000` (last setup: a value ≥ 16 factory-resets the unit at boot), `0x0004`, `0x0008`–`0x001F` (`0x0010`–`0x001F` hold the last group per setup) or the presets at `0x0800`–`0x0AFF`. Below `0x0B00` it writes only the settings above: `0x0001`–`0x0003` and `0x0005`–`0x0007`.
 - **Files.** Opening a file (or dropping it on the page) works offline or while connected. It accepts:
   - stock "all setups" dumps (`0x0B00`–`0xFFFF`), as sent by the EC4's Setup → Send;
   - full 64 KB dumps;

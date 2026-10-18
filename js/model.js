@@ -12,6 +12,7 @@ export const A = {
   BRIGHTNESS: 0x0003,
   SCREENSAVER: 0x0005,
   NOTE_VIEW: 0x0006,
+  SEND_VALUES: 0x0007, // faderfrog 0.10+: 1 = send the group's values on a group change; stock ignores it
   LAST_GROUP: 0x0010, // 16 bytes, one per setup
   KEY1: 0x0B00, // push mode/number, 16 bytes per group
   SETUP_NAMES: 0x1BC0, // 4 bytes per setup
@@ -21,11 +22,12 @@ export const A = {
   SETUPS_START: 0x0B00, // stock "all setups" dumps cover 0x0B00-0xFFFF
 };
 
-// Bytes the editor may write to the device: the editable globals and the setups area.
-// 0x0000 (last setup; >= 16 factory-resets at boot), 0x0010-0x001F (last group),
-// 0x0004 (unused) and the presets 0x0800-0x0AFF belong to the device and are never written.
+// Bytes the editor may write to the device: the editable globals (0x0001-0x0003, 0x0005-0x0007)
+// and the setups area. 0x0000 (last setup; >= 16 factory-resets at boot), 0x0004 (unused),
+// 0x0008-0x000F, 0x0010-0x001F (last group) and the presets 0x0800-0x0AFF belong to the device
+// and are never written. The stock firmware never reads or writes 0x0007.
 export function writable(addr) {
-  return addr >= A.SETUPS_START || addr === 1 || addr === 2 || addr === 3 || addr === 5 || addr === 6;
+  return addr >= A.SETUPS_START || addr === 1 || addr === 2 || addr === 3 || addr === 5 || addr === 6 || addr === 7;
 }
 
 const grp = (s, g) => s * 16 + g;
@@ -427,6 +429,7 @@ export function readGlobals(img) {
     brightness: img[A.BRIGHTNESS],
     screensaver: img[A.SCREENSAVER],
     noteView: img[A.NOTE_VIEW],
+    sendValues: img[A.SEND_VALUES] === 1, // anything else (blank 0xFF, 0) is off
     lastGroups: Array.from(img.subarray(A.LAST_GROUP, A.LAST_GROUP + 16)),
   };
 }
@@ -448,6 +451,9 @@ export function setGlobal(img, field, value) {
       break;
     case 'noteView':
       img[A.NOTE_VIEW] = v ? 1 : 0;
+      break;
+    case 'sendValues':
+      img[A.SEND_VALUES] = v ? 1 : 0;
       break;
     default:
       throw new Error('unknown global ' + field);

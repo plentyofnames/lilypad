@@ -1339,7 +1339,7 @@ function globalsView() {
   const st = S.store;
   const ok = st.valid[M.GLOBALS_PAGE];
   const g = M.readGlobals(st.img);
-  const set = (f) => (v) => edit(() => M.setGlobal(img(), f, v));
+  const set = (f) => (v) => edit(() => M.setGlobal(img(), f, v), { label: 'device setting' });
   const rows = [];
   rows.push(h('h2', {}, 'Device settings'));
   if (!ok) {
@@ -1356,6 +1356,14 @@ function globalsView() {
   const ssVal = g.screensaver >= 1 && g.screensaver <= 100 ? g.screensaver : 100;
   rows.push(row('Screensaver', selectField('screensaver', ss, ssVal, set('screensaver')), { hint: g.screensaver !== ssVal ? `stored ${g.screensaver} loads as off` : '' }));
   rows.push(row('Note numbers', selectField('noteView', [{ value: 0, label: 'as numbers' }, { value: 1, label: 'as note names' }], g.noteView ? 1 : 0, set('noteView')), { hint: 'how Note controls show their number' }));
+  // Firmware 0.10 added this byte; older faderfrog versions and the stock firmware ignore it.
+  const fw = S.conn?.info;
+  if (fw && (fw.fwMajor > 0 || fw.fwMinor >= 10)) {
+    rows.push(row('Group change', h('label', { class: 'check' },
+      h('input', { type: 'checkbox', checked: g.sendValues, dataset: { key: 'sendValues' }, onchange: (ev) => set('sendValues')(ev.target.checked ? 1 : 0) }),
+      'Send values on group change'),
+    { note: 'When the group or setup changes (on the unit, by a Grp/Set push button, or from Lilypad with Move device), the unit sends the new group\'s current values, like Num + push 16.' }));
+  }
   rows.push(row('Value pop-up', selectField('popup', [0, 1, 2].map((v) => ({ value: v, label: `style ${v}` })), Math.min(g.popup, 2), set('popup')),
     { hint: 'pop-up in Name mode; set on the unit with Shift + Name / Bar / Num (factory: 2)' }));
   rows.push(h('h3', {}, 'Device state (read only)'));
