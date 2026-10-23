@@ -1,18 +1,18 @@
 # Lilypad
 
-A browser-based **Web MIDI editor for the Faderfox EC4** running **faderfrog**, a custom firmware that lets a computer read and write the EC4's setups over USB MIDI. Edit the encoders, push buttons and names of all 16 setups × 16 groups, plus the device settings, and write back only the bytes that changed.
+A browser-based **Web MIDI editor for the Faderfox EC4** running **controlfrog**, a custom firmware that lets a computer read and write the EC4's setups over USB MIDI. Edit the encoders, push buttons and names of all 16 setups × 16 groups, plus the device settings, and write back only the bytes that changed.
 
 ▶︎ **Live editor:** https://plentyofnam.es/lilypad/
 
-> **Unofficial.** Lilypad and faderfrog are not made, endorsed or supported by Faderfox. Faderfox and EC4 are trademarks of their owner.
+> **Unofficial.** Lilypad and controlfrog are not made, endorsed or supported by Faderfox. Faderfox and EC4 are trademarks of their owner.
 >
-> **Editing a real unit needs the faderfrog firmware, which is not released yet.** The stock EC4 firmware does not speak Lilypad's protocol. Until faderfrog is out, you can try everything against the built-in demo EC4, and edit stock "all setups" `.syx` dumps offline.
+> **Editing a real unit needs the controlfrog firmware, which is not released yet.** The stock EC4 firmware does not speak Lilypad's protocol. Until controlfrog is out, you can try everything against the built-in demo EC4, and edit stock "all setups" `.syx` dumps offline.
 
 Plain HTML, CSS and JS modules: no build step, no dependencies.
 
 ## Try it
 
-Open the [live editor](https://plentyofnam.es/lilypad/) and press **Try the demo EC4**. The demo is a simulated EC4 that runs in the page. It speaks the same protocol as faderfrog, at the real link speed (31250 baud each way, ~5 ms per EEPROM page write), and starts from the EC4's factory layout. Its memory is kept in your browser, so it behaves like a device across reloads; **Reset** in the demo panel starts over.
+Open the [live editor](https://plentyofnam.es/lilypad/) and press **Try the demo EC4**. The demo is a simulated EC4 that runs in the page. It speaks the same protocol as controlfrog, at the real link speed (31250 baud each way, ~5 ms per EEPROM page write), and starts from the EC4's factory layout. Its memory is kept in your browser, so it behaves like a device across reloads; **Reset** in the demo panel starts over.
 
 To run it locally, serve the folder over HTTP (modules don't load from `file://`):
 
@@ -25,7 +25,7 @@ and open <http://localhost:8000/>. After pulling a newer version, hard-reload (C
 ## Requirements
 
 - **Chrome, Edge** or another browser with Web MIDI and SysEx. Safari has no Web MIDI. The browser asks for MIDI/SysEx permission only when you pick the MIDI target and press **Connect**.
-- For a real unit: an EC4 running faderfrog, on USB. Connect sends IDENTIFY first and stops unless the unit answers with protocol 1.
+- For a real unit: an EC4 running controlfrog, on USB. Connect sends IDENTIFY first and stops unless the unit answers with protocol 1.
 - **Reconnecting:** after a successful connection to a real unit, Lilypad reconnects to it on the next load. It does this only if the browser already allows MIDI, so a page load never prompts. If the unit isn't plugged in yet, Lilypad waits and connects when it appears; it also reconnects after the unit is unplugged and plugged back in. Pressing **Disconnect** stops all of this until the next manual Connect.
 - **One tab at a time:** the unit answers every program that has its port open. So a Lilypad tab doesn't reconnect by itself while another Lilypad tab holds the unit, and pressing **Connect** takes the unit over from the other tab.
 - Nothing is needed for the demo or for working on files offline.
@@ -44,7 +44,7 @@ and open <http://localhost:8000/>. After pulling a newer version, hard-reload (C
   - fault switches (writes fail, bus error, dropped reply, corrupt READ);
   - read/write counters;
   - Load .syx / Save EEPROM / Reset.
-- **EC4 over MIDI (faderfrog)** is a real unit through its "Faderfox EC4" USB MIDI ports.
+- **EC4 over MIDI (controlfrog)** is a real unit through its "Faderfox EC4" USB MIDI ports.
 
 ## Use
 
@@ -61,7 +61,7 @@ and open <http://localhost:8000/>. After pulling a newer version, hard-reload (C
   - Push types Off, Acc/LSp/Min/Max and Grp/Set turn their fields off; Grp/Set relabel the channel as Group/Setup.
   - Link is off on control 16.
   - Invalid stored values show with the value the EC4 actually uses.
-- **Device settings** (top of the sidebar): routing, brightness, screensaver, note view and value pop-up. With faderfrog 0.10 or later, also **Send values on group change** (byte `0x0007`): each group or setup change then sends the new group's current values.
+- **Device settings** (top of the sidebar): routing, brightness, screensaver, note view and value pop-up. With controlfrog 0.10 or later, also **Send values on group change** (byte `0x0007`): each group or setup change then sends the new group's current values.
 - **Reading.** Data is read lazily, one setup at a time (~2 s, the selected group first). Moving to another setup stops a lazy read, and pages already read stay cached. **Read all** reads the rest (~30 s for 64 KB). **Re-read setup** discards the cache for the current setup.
 - **Write** sends only the changed bytes, as runs of at most 64 bytes that never cross a 64-byte page, then RELOAD. Bytes without a known device value (for example after opening a file while connected) are read first, so the comparison is exact. **Auto-write** (status bar) writes 0.6 s after each edit. **Move device** sends SELECT when you browse, and **Follow device** follows TOUCH and STATE events.
 - **No reply** counts as "busy": a full dump keeps the unit silent for ~67 s. Lilypad keeps retrying a request for up to 75 s and says so in the status bar. **Cancel** or **Disconnect** stops it.
@@ -71,11 +71,11 @@ and open <http://localhost:8000/>. After pulling a newer version, hard-reload (C
   - full 64 KB dumps;
   - "one setup" files, whose pages are applied by address.
 
-  **Save .syx** writes the stock "all setups" format (30 zero bytes after each page), which the stock firmware loads with Setup → Receive. **Save full dump** writes all 64 KB in faderfrog's dump format. Saving an unchanged file reproduces it byte for byte. **Backup…** asks the unit for a full dump (~67 s) and saves it as it arrives.
+  **Save .syx** writes the stock "all setups" format (30 zero bytes after each page), which the stock firmware loads with Setup → Receive. **Save full dump** writes all 64 KB in controlfrog's dump format. Saving an unchanged file reproduces it byte for byte. **Backup…** asks the unit for a full dump (~67 s) and saves it as it arrives.
 
 ## Protocol
 
-faderfrog speaks a small SysEx protocol on the EC4's USB port: `F0 7D 45 43 34 <cmd> … F7` (`7D` is the non-commercial manufacturer ID, `45 43 34` is "EC4"). Data is packed 8-to-7. Requests are IDENTIFY, READ and WRITE (up to 64 bytes, never across a 64-byte page), RELOAD, GET_STATE, SELECT, TOUCH_EVENTS and DUMP_ALL. The unit also sends STATE and TOUCH events on its own. The codec is [`js/proto.js`](js/proto.js), and [`js/mock.js`](js/mock.js) is a complete device-side implementation.
+controlfrog speaks a small SysEx protocol on the EC4's USB port: `F0 7D 45 43 34 <cmd> … F7` (`7D` is the non-commercial manufacturer ID, `45 43 34` is "EC4"). Data is packed 8-to-7. Requests are IDENTIFY, READ and WRITE (up to 64 bytes, never across a 64-byte page), RELOAD, GET_STATE, SELECT, TOUCH_EVENTS and DUMP_ALL. The unit also sends STATE and TOUCH events on its own. The codec is [`js/proto.js`](js/proto.js), and [`js/mock.js`](js/mock.js) is a complete device-side implementation.
 
 ## Files
 

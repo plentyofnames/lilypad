@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Lilypad · EC4 editor for faderfrog</title>
-  <meta name="description" content="Unofficial browser editor for the Faderfox EC4 running the faderfrog custom firmware. Not affiliated with Faderfox.">
+  <title>Lilypad · EC4 editor for controlfrog</title>
+  <meta name="description" content="Unofficial browser editor for the Faderfox EC4 running the controlfrog custom firmware. Not affiliated with Faderfox.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 16 L29.5 9.5 A15 15 0 1 1 22.5 2.5 Z' fill='%2366b84a'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
   <header class="top">
-    <div class="brand"><svg class="pad" width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 16 L29.5 9.5 A15 15 0 1 1 22.5 2.5 Z" fill="currentColor"/><path d="M16 16 L26 6" stroke="var(--panel)" stroke-width="1.6" stroke-linecap="round"/></svg>lilypad<span>EC4 editor for faderfrog</span></div>
+    <div class="brand"><svg class="pad" width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 16 L29.5 9.5 A15 15 0 1 1 22.5 2.5 Z" fill="currentColor"/><path d="M16 16 L26 6" stroke="var(--panel)" stroke-width="1.6" stroke-linecap="round"/></svg>lilypad<span>EC4 editor for controlfrog</span></div>
     <div class="group conn">
       <select id="target" title="Where to connect">
         <option value="mock" selected>Demo EC4 (simulated)</option>
-        <option value="midi">EC4 over MIDI (faderfrog)</option>
+        <option value="midi">EC4 over MIDI (controlfrog)</option>
       </select>
       <select id="midiport" hidden title="MIDI port"></select>
       <button id="connect">Connect</button>
@@ -33,7 +33,7 @@
       <button id="discard" title="Throw away changes">Discard</button>
       <button id="open" title="Open a stock all-setups dump or a full EEPROM dump (or drop a file on the page)">Open .syx…</button>
       <button id="save" title="Save all setups (0x0B00–0xFFFF) in the stock container; the stock firmware loads it with Setup → Receive">Save .syx</button>
-      <button id="savefull" title="Save the full 64 KB EEPROM, globals included (faderfrog dump format)">Save full dump</button>
+      <button id="savefull" title="Save the full 64 KB EEPROM, globals included (controlfrog dump format)">Save full dump</button>
       <button id="about" title="What Lilypad is">About</button>
     </div>
     <input type="file" id="fileinput" accept=".syx,.SYX" hidden>

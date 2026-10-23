@@ -1,6 +1,6 @@
 // A mock EC4 running protocol v1 on a 64 KB EEPROM image, with the link timing of the real
 // unit (31250 baud each way, EEPROM page writes ~5 ms). It is the demo and test target.
-// Like the faderfrog firmware it handles one request at a time and drops requests
+// Like the controlfrog firmware it handles one request at a time and drops requests
 // that arrive before the previous reply is out; during DUMP_ALL it is silent: requests are
 // ignored and no events are sent.
 

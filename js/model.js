@@ -12,7 +12,7 @@ export const A = {
   BRIGHTNESS: 0x0003,
   SCREENSAVER: 0x0005,
   NOTE_VIEW: 0x0006,
-  SEND_VALUES: 0x0007, // faderfrog 0.10+: 1 = send the group's values on a group change; stock ignores it
+  SEND_VALUES: 0x0007, // controlfrog 0.10+: 1 = send the group's values on a group change; stock ignores it
   LAST_GROUP: 0x0010, // 16 bytes, one per setup
   KEY1: 0x0B00, // push mode/number, 16 bytes per group
   SETUP_NAMES: 0x1BC0, // 4 bytes per setup

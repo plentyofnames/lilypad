@@ -364,7 +364,7 @@ export async function runTests(load, report = console.log) {
     eqBytes(await dev.read(0, 64), imageOf(full).subarray(0, 64), 'works again');
   });
 
-  test('send values on group change (0x0007, faderfrog 0.10)', () => {
+  test('send values on group change (0x0007, controlfrog 0.10)', () => {
     const img = demoImage();
     img[7] = 0xFF;
     assert(M.readGlobals(img).sendValues === false, 'blank is off');

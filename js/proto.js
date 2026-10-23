@@ -1,4 +1,4 @@
-// faderfrog settings protocol v1: framing, 8-to-7 packing, message codecs.
+// controlfrog settings protocol v1: framing, 8-to-7 packing, message codecs.
 // Shared by the host client (device.js) and the mock device (mock.js).
 
 export const HEADER = [0xF0, 0x7D, 0x45, 0x43, 0x34]; // SysEx start, non-commercial ID, "EC4"

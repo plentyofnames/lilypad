@@ -5,7 +5,7 @@
 //   43/44   version                          49/4A page byte address high/low
 //   4D      data byte (64 per page)          4B/4C page checksum (16-bit byte sum)
 //   4F dev  download stop
-// Stock "all setups" files put 30 zero bytes after each page; the faderfrog firmware's
+// Stock "all setups" files put 30 zero bytes after each page; the controlfrog firmware's
 // full EEPROM dump has none. The padding is remembered so files round-trip exactly.
 
 export const DEVICE_EC4 = 0x0B;

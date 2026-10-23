@@ -372,7 +372,7 @@ async function connect({ auto = false } = {}) {
       return;
     }
     const s = Math.round(e.detail.elapsedMs / 1000);
-    const why = S.conn?.info ? 'the device may be busy with a dump' : 'the device may be busy with a dump, or faderfrog is not running on it';
+    const why = S.conn?.info ? 'the device may be busy with a dump' : 'the device may be busy with a dump, or controlfrog is not running on it';
     say(`No reply for ${s} s (${why}); retrying for up to ${S.conn?.auto && !S.conn.info ? 'a few seconds' : '75 s'}. Cancel or Disconnect to stop.`, 'error');
     S.message.waiting = true;
   });
@@ -393,7 +393,7 @@ async function connect({ auto = false } = {}) {
     go(S.devState.setup, S.devState.group, { fromDevice: true });
   } catch (e) {
     const msg = e.name === 'TimeoutError' || /no reply/.test(e.message)
-      ? `No reply from ${transport.name}. Is the faderfrog firmware running on it?${auto ? ' Press Connect to try again.' : ''}` : e.message;
+      ? `No reply from ${transport.name}. Is the controlfrog firmware running on it?${auto ? ' Press Connect to try again.' : ''}` : e.message;
     disconnect(true);
     say(msg, 'error');
   }
@@ -1356,7 +1356,7 @@ function globalsView() {
   const ssVal = g.screensaver >= 1 && g.screensaver <= 100 ? g.screensaver : 100;
   rows.push(row('Screensaver', selectField('screensaver', ss, ssVal, set('screensaver')), { hint: g.screensaver !== ssVal ? `stored ${g.screensaver} loads as off` : '' }));
   rows.push(row('Note numbers', selectField('noteView', [{ value: 0, label: 'as numbers' }, { value: 1, label: 'as note names' }], g.noteView ? 1 : 0, set('noteView')), { hint: 'how Note controls show their number' }));
-  // Firmware 0.10 added this byte; older faderfrog versions and the stock firmware ignore it.
+  // Firmware 0.10 added this byte; older controlfrog versions and the stock firmware ignore it.
   const fw = S.conn?.info;
   if (fw && (fw.fwMajor > 0 || fw.fwMinor >= 10)) {
     rows.push(row('Group change', h('label', { class: 'check' },
@@ -1376,11 +1376,11 @@ const REPO = 'https://github.com/plentyofnames/lilypad';
 // What Lilypad is: the start screen and the About dialog.
 function aboutText() {
   return [
-    h('p', { class: 'lead' }, 'A browser editor for the Faderfox EC4 running ', h('b', {}, 'faderfrog'),
+    h('p', { class: 'lead' }, 'A browser editor for the Faderfox EC4 running ', h('b', {}, 'controlfrog'),
       ', a custom firmware that lets a computer read and write the setups over USB MIDI. Edit the encoders, push buttons and names of all 16 setups × 16 groups, and write back only the bytes that changed.'),
     h('div', { class: 'notice' },
-      h('p', {}, h('b', {}, 'Unofficial. '), 'Lilypad and faderfrog are not made, endorsed or supported by Faderfox. Faderfox and EC4 are their owner’s trademarks.'),
-      h('p', {}, 'To edit a real unit, the EC4 needs the faderfrog firmware, which is ', h('b', {}, 'not released yet'), '. Until then, try the demo EC4: it runs in this page, at the real link speed, starting from the factory layout.')),
+      h('p', {}, h('b', {}, 'Unofficial. '), 'Lilypad and controlfrog are not made, endorsed or supported by Faderfox. Faderfox and EC4 are their owner’s trademarks.'),
+      h('p', {}, 'To edit a real unit, the EC4 needs the controlfrog firmware, which is ', h('b', {}, 'not released yet'), '. Until then, try the demo EC4: it runs in this page, at the real link speed, starting from the factory layout.')),
     h('p', { class: 'hint' }, 'Also opens stock "all setups" dumps (0x0B00–0xFFFF) and full 64 KB EEPROM dumps, offline. Saved "all setups" files load on the stock firmware through Setup → Receive. Needs Chrome, Edge or another browser with Web MIDI; Safari has none. ',
       h('a', { href: REPO, target: '_blank', rel: 'noopener' }, 'Source and instructions on GitHub'), ' · MIT licence.'),
   ];
